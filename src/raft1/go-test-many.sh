@@ -68,9 +68,9 @@ if [ $# -gt 2 ]; then
 fi
 
 # Figure out where we left off
-logs=$(find . -maxdepth 1 -name 'test-*.log' -type f -printf '.' | wc -c)
+log=$(find . -maxdepth 1 -name 'test-*.log' -type f -printf '.' | wc -c)
 success=$(grep -E '^PASS$' test-*.log | wc -l)
-((failed = logs - success))
+((failed = log - success))
 
 # Finish checks the exit status of the tester with the given PID, updates the
 # success/failed counters appropriately, and prints a pretty message.
