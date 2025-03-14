@@ -9,8 +9,7 @@ import (
 	"6.5840/labgob"
 	"6.5840/labrpc"
 	"6.5840/raftapi"
-	"6.5840/tester1"
-
+	tester "6.5840/tester1"
 )
 
 const (
@@ -18,7 +17,6 @@ const (
 )
 
 var useRaftStateMachine bool // to plug in another raft besided raft1
-
 
 type rfsrv struct {
 	ts          *Test
@@ -33,7 +31,7 @@ type rfsrv struct {
 }
 
 func newRfsrv(ts *Test, srv int, ends []*labrpc.ClientEnd, persister *tester.Persister, snapshot bool) *rfsrv {
-	//log.Printf("mksrv %d", srv)
+	// log.Printf("mksrv %d", srv)
 	s := &rfsrv{
 		ts:        ts,
 		me:        srv,
@@ -63,7 +61,7 @@ func newRfsrv(ts *Test, srv int, ends []*labrpc.ClientEnd, persister *tester.Per
 }
 
 func (rs *rfsrv) Kill() {
-	//log.Printf("rs kill %d", rs.me)
+	// log.Printf("rs kill %d", rs.me)
 	rs.mu.Lock()
 	rs.raft = nil // tester will call Kill() on rs.raft
 	rs.mu.Unlock()
