@@ -15,6 +15,7 @@ package raft
 import (
 	//	"bytes"
 
+	"bytes"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,7 @@ import (
 
 	//	"6.5840/labgob"
 
+	"6.5840/labgob"
 	"6.5840/labrpc"
 	"6.5840/raftapi"
 	tester "6.5840/tester1"
@@ -71,7 +73,7 @@ const (
 )
 
 const (
-	heartbeat = time.Duration(50) * time.Millisecond
+	heartbeat = time.Duration(100) * time.Millisecond
 )
 
 type LogEntry struct {
@@ -97,12 +99,13 @@ func (rf *Raft) GetState() (int, bool) {
 func (rf *Raft) persist() {
 	// Your code here (3C).
 	// Example:
-	// w := new(bytes.Buffer)
-	// e := labgob.NewEncoder(w)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// raftstate := w.Bytes()
-	// rf.persister.Save(raftstate, nil)
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	if e.Encode(rf.votedFor) != nil || e.Encode(rf.currentTerm) != nil || e.Encode(rf.log) != nil {
+		panic("failed to encode state")
+	}
+
+	rf.persister.Save(w.Bytes(), nil)
 }
 
 // restore previously persisted state.
@@ -112,17 +115,14 @@ func (rf *Raft) readPersist(data []byte) {
 	}
 	// Your code here (3C).
 	// Example:
-	// r := bytes.NewBuffer(data)
-	// d := labgob.NewDecoder(r)
-	// var xxx
-	// var yyy
-	// if d.Decode(&xxx) != nil ||
-	//    d.Decode(&yyy) != nil {
-	//   error...
-	// } else {
-	//   rf.xxx = xxx
-	//   rf.yyy = yyy
-	// }
+
+	r := bytes.NewBuffer(data)
+
+	d := labgob.NewDecoder(r)
+
+	if d.Decode(&rf.currentTerm) != nil || d.Decode(&rf.votedFor) != nil || d.Decode(&rf.log) != nil {
+		panic("failed to decode raft persistent state")
+	}
 }
 
 // how many bytes in Raft's persisted log?
@@ -188,6 +188,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	defer rf.persist()
 
 	if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
@@ -292,12 +293,11 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 		return -1, -1, false
 	}
 
-	DPrintf("[Id:%v Term:%v] received command %v appending to log", rf.me, rf.currentTerm, command)
 	rf.log = append(rf.log, LogEntry{Command: command, Term: rf.currentTerm})
-	DPrintf("[Id:%v Term:%v] log %v", rf.me, rf.currentTerm, rf.log)
+	rf.persist()
 
 	// issue and append entrie RPC
-	// rf.heartbeatTimeout = time.Now() // idk if this is correct to trigger a heartbeatTimeout inmediately
+	rf.heartbeatTimeout = time.Now() // idk if this is correct to trigger a heartbeatTimeout inmediately
 
 	return (rf.getLastLogIndex()), (rf.currentTerm), true
 }
@@ -348,6 +348,7 @@ func (rf *Raft) timeout() {
 		rf.votedFor = rf.me
 		rf.resetElectionTimeout()
 		rf.voteCount = 1 // we count ourselves
+		rf.persist()
 		DPrintf("[Id:%v Term:%v] starting election", rf.me, rf.currentTerm)
 		rf.startElection()
 	}
@@ -391,6 +392,7 @@ func (rf *Raft) startElection() {
 						rf.currentTerm = reply.Term
 						rf.resetElectionTimeout()
 						rf.votedFor = -1
+						rf.persist()
 					}
 
 					if reply.VoteGranted {
@@ -456,6 +458,7 @@ func (rf *Raft) broadcastAppendEntries() {
 
 			rf.mu.Lock()
 			defer rf.mu.Unlock()
+			defer rf.persist()
 			// not leader or old term
 			if rf.state != Leader || args.Term != rf.currentTerm || reply.Term < rf.currentTerm {
 				return
@@ -465,12 +468,14 @@ func (rf *Raft) broadcastAppendEntries() {
 				rf.currentTerm = reply.Term
 				rf.state = Follower
 				rf.votedFor = -1
+				rf.resetElectionTimeout()
 				return
 			}
 
 			if reply.Success { // success append logs
-				newMatchIndex := args.PrevLogIndex + len(args.Entries)
-				rf.matchIndex[i] = max(rf.matchIndex[i], newMatchIndex)
+				// newMatchIndex := args.PrevLogIndex + len(args.Entries)
+				// rf.matchIndex[i] = max(rf.matchIndex[i], newMatchIndex)
+				rf.matchIndex[i] = args.PrevLogIndex + len(args.Entries)
 				rf.nextIndex[i] = rf.matchIndex[i] + 1
 			} else if reply.ConflictTerm < 0 { // follower's log is shorter than leader's log
 				rf.nextIndex[i] = reply.ConflictIndex
@@ -494,6 +499,9 @@ func (rf *Raft) broadcastAppendEntries() {
 
 			// update commitIndex
 			for n := rf.getLastLogIndex(); n >= rf.commitIndex; n-- {
+				if rf.log[n].Term != rf.currentTerm {
+					continue
+				}
 				count := 1
 				for j := range rf.peers {
 					if j != rf.me && rf.matchIndex[j] >= n {
@@ -533,6 +541,7 @@ func (rf *Raft) heartbeat() {
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	defer rf.persist()
 
 	reply.Term = rf.currentTerm
 	reply.Success = false
@@ -619,6 +628,7 @@ func (rf *Raft) eventLoop() {
 			rf.becomeLeader()
 		}
 
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
