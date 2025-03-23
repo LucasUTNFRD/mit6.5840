@@ -27,3 +27,15 @@ type AppendEntriesReply struct {
 	ConflictIndex int
 	ConflictTerm  int
 }
+
+type InstallSnapshotArgs struct {
+	Term              int
+	LeaderId          int
+	LastSnapshotIndex int
+	LastSnapshotTerm  int
+	Snapshot          []byte
+}
+
+type InstallSnapshotReply struct {
+	Term int
+}
